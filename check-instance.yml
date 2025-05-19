@@ -54,8 +54,8 @@
     - name: Fail if unable to sudo to root on target
       assert:
         that: "'root' in rawrc.stdout_lines"
-        fail_msg: "The account {{ ansible_user }} used to connect does not have sudo privileges to root"
-        success_msg: "The account {{ ansible_user }} used to connect has sudo root privileges, continuing"
+        fail_msg: "The account {{ ansible_env.USER }} used to connect does not have sudo privileges to root"
+        success_msg: "The account {{ ansible_env.USER }} used to connect has sudo root privileges, continuing"
 
     - name: Check for Python installation
       raw: test -e /usr/bin/python || test -e /usr/bin/python3

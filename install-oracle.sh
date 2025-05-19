@@ -16,6 +16,12 @@ echo Command used:
 echo "$0 $@"
 echo
 
+if curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal > /dev/null 2>&1; then
+  INSTANCE_ENV_TYPE="gce"
+else
+  INSTANCE_ENV_TYPE="unknown"
+fi
+
 #
 #export ANSIBLE_LOG_PATH=~/ansible.log
 #export ANSIBLE_DEBUG=True"
@@ -740,11 +746,11 @@ shopt -s nocasematch
   echo "Incorrect parameter provided for backup-start-min: $BACKUP_LOG_LOCATION"
   exit 1
 }
-[[ ! "$INSTANCE_IP_ADDR" =~ ${INSTANCE_IP_ADDR_PARAM} ]] && [[ "$CLUSTER_TYPE" != "RAC" ]] && {
+[[ "$INSTANCE_ENV_TYPE" != "gce" ]] && [[ ! "$INSTANCE_IP_ADDR" =~ ${INSTANCE_IP_ADDR_PARAM} ]] && [[ "$CLUSTER_TYPE" != "RAC" ]] && {
   echo "Incorrect parameter provided for instance-ip-addr: $INSTANCE_IP_ADDR"
   exit 1
 }
-[[ "$INSTANCE_IP_ADDR" == "$PRIMARY_IP_ADDR" ]] && [[ "$CLUSTER_TYPE" != "RAC" ]] && {
+[[ "$INSTANCE_ENV_TYPE" != "gce" ]] && [[ "$INSTANCE_IP_ADDR" == "$PRIMARY_IP_ADDR" ]] && [[ "$CLUSTER_TYPE" != "RAC" ]] && {
   echo "ERROR: Both instance-ip-addr and primary-ip-addr are set to: $INSTANCE_IP_ADDR"
   exit 1
 }
@@ -843,7 +849,11 @@ fi
 # Build the inventory file if no inventory file specified on the command line
 #
 if [[ -z ${INVENTORY_FILE_PARAM} ]]; then
-  COMMON_OPTIONS="ansible_ssh_user=${INSTANCE_SSH_USER} ansible_ssh_private_key_file=${INSTANCE_SSH_KEY} ansible_ssh_extra_args=${INSTANCE_SSH_EXTRA_ARGS}"
+  if [[ "$INSTANCE_ENV_TYPE" == "gce" ]]; then
+    COMMON_OPTIONS="ansible_ssh_extra_args=${INSTANCE_SSH_EXTRA_ARGS}"
+  else
+    COMMON_OPTIONS="ansible_ssh_user=${INSTANCE_SSH_USER} ansible_ssh_private_key_file=${INSTANCE_SSH_KEY} ansible_ssh_extra_args=${INSTANCE_SSH_EXTRA_ARGS}"
+  fi
   #
   # If $CLUSTER_TYPE = RAC then we use $CLUSTER_CONFIG[_JSON] to build the inventory file
   #
@@ -871,12 +881,11 @@ if [[ -z ${INVENTORY_FILE_PARAM} ]]; then
     echo "[${INSTANCE_HOSTGROUP_NAME}]" >"${INVENTORY_FILE}"
 
     # jq filters for better visibility
-    OLDIFS="${IFS}"
-    IFS='' read -r -d '' JQF <<EOF
-    .[] | .nodes[] | .node_name + " ansible_ssh_host=" + .host_ip
-    + " vip_name=" + .vip_name + " vip_ip=" + .vip_ip
-EOF
-    IFS="${OLDIFS}"
+    if [[ ${INSTANCE_ENV_TYPE} != "gce" ]]; then
+      JQF='.[] | .nodes[] | .node_name + " vip_name=" + .vip_name + " vip_ip=" + .vip_ip"'
+    else
+      JQF='.[] | .nodes[] | .node_name + " ansible_ssh_host=" + .host_ip + " vip_name=" + .vip_name + " vip_ip=" + .vip_ip"'
+    fi
     echo "${CLUSTER_CONFIG_JSON}" | jq -rc "${JQF}" | awk -v COMMON_OPTIONS="${COMMON_OPTIONS}" '{print $0" " COMMON_OPTIONS}' >>"${INVENTORY_FILE}"
 
     printf "\n" >>"${INVENTORY_FILE}"
@@ -905,10 +914,17 @@ primary1 ansible_ssh_host=${PRIMARY_IP_ADDR} ${COMMON_OPTIONS}
 EOF
   else # Non RAC
     INVENTORY_FILE="${INVENTORY_FILE}_${INSTANCE_HOSTNAME}_${ORA_DB_NAME}"
-    cat <<EOF >"${INVENTORY_FILE}"
+    if [[ "$INSTANCE_ENV_TYPE" == "gce" ]]; then
+      cat <<EOF >"${INVENTORY_FILE}"
 [${INSTANCE_HOSTGROUP_NAME}]
-${INSTANCE_HOSTNAME} ansible_ssh_host=${INSTANCE_IP_ADDR} ${COMMON_OPTIONS}
+    ${INSTANCE_HOSTNAME} ${COMMON_OPTIONS}
 EOF
+    else
+      cat <<EOF >"${INVENTORY_FILE}"
+[${INSTANCE_HOSTGROUP_NAME}]
+    ${INSTANCE_HOSTNAME} ansible_ssh_host=${INSTANCE_IP_ADDR} ${COMMON_OPTIONS}
+EOF
+    fi
   fi # End of if RAC
 else
   INVENTORY_FILE="${INVENTORY_FILE_PARAM}"
@@ -965,6 +981,7 @@ export CLUSTER_CONFIG
 export CLUSTER_CONFIG_JSON
 export COMPATIBLE_RDBMS
 export INSTANCE_IP_ADDR
+export INSTANCE_ENV_TYPE
 export NTP_PREF
 export ORA_DATA_DESTINATION
 export ORA_DB_CHARSET

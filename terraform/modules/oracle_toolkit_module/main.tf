@@ -44,46 +44,6 @@ locals {
   project_id = var.project_id
 }
 
-# Generate an SSH key pair
-resource "tls_private_key" "ssh_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
-# Store the private key in Secret Manager
-resource "google_secret_manager_secret" "ssh_private_key" {
-  secret_id = "ansible-ssh-private-key"
-  project   = local.project_id
-  replication {
-    auto {}
-  }
-}
-
-resource "google_secret_manager_secret_version" "ssh_private_key_version" {
-  secret      = google_secret_manager_secret.ssh_private_key.id
-  secret_data = tls_private_key.ssh_key.private_key_pem
-}
-
-# Store the public key in Secret Manager
-resource "google_secret_manager_secret" "ssh_public_key" {
-  secret_id = "ansible-ssh-public-key"
-  project   = local.project_id
-  replication {
-    auto {}
-  }
-}
-
-resource "google_secret_manager_secret_version" "ssh_public_key_version" {
-  secret      = google_secret_manager_secret.ssh_public_key.id
-  secret_data = tls_private_key.ssh_key.public_key_openssh
-}
-
-resource "local_file" "private_key" {
-  filename        = abspath("${path.module}/ansible-ssh-key")
-  content         = tls_private_key.ssh_key.private_key_pem
-  file_permission = "0600"
-}
-
 # Instance template module
 module "instance_template" {
   source  = "terraform-google-modules/vm/google//modules/instance_template"
@@ -109,7 +69,6 @@ module "instance_template" {
 
   metadata = {
     metadata_startup_script = var.metadata_startup_script
-    ssh-keys                = "ansible:${tls_private_key.ssh_key.public_key_openssh}"
   }
 
   additional_disks = local.additional_disks
@@ -142,24 +101,16 @@ module "compute_instance" {
 resource "null_resource" "oracle_toolkit" {
   for_each = { for i, instance in module.compute_instance.instances_details : i => instance }
 
-  provisioner "remote-exec" {
-    inline = ["echo 'Running Ansible on ${each.value.network_interface[0].access_config[0].nat_ip}'"]
-
-    connection {
-      type        = "ssh"
-      user        = "ansible"
-      private_key = file(local_file.private_key.filename)
-      host        = each.value.network_interface[0].access_config[0].nat_ip
-    }
-  }
-
   provisioner "local-exec" {
     working_dir = "../"
     command     = <<-EOT
+      until gcloud compute ssh ${each.value.name} --zone=${var.zone} --internal-ip --command="echo ready" --quiet; do
+        echo "Waiting for SSH to become available on ${each.value.name}..."
+        sleep 10
+      done
+
       bash install-oracle.sh \
-      --instance-ip-addr ${each.value.network_interface[0].access_config[0].nat_ip} \
-      --instance-ssh-user ansible \
-      --instance-ssh-key "${local_file.private_key.filename}" \
+      --instance-hostname ${each.value.name} \
       --ora-asm-disks-json '${jsonencode(local.asm_disk_config)}' \
       --ora-data-mounts-json '${jsonencode(local.data_mounts_config)}' \
       --swap-blk-device "/dev/disk/by-id/google-swap" \
@@ -176,14 +127,5 @@ resource "null_resource" "oracle_toolkit" {
     EOT
   }
 
-  depends_on = [module.compute_instance, local_file.private_key]
-}
-
-# Deleting local private key after Oracle Toolkit provision
-resource "null_resource" "delete_privatekey" {
-  provisioner "local-exec" {
-    command = "rm -f ${local_file.private_key.filename}"
-  }
-
-  depends_on = [null_resource.oracle_toolkit]
+  depends_on = [module.compute_instance]
 }

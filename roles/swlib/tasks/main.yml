@@ -22,7 +22,7 @@
         path: "{{ swlib_path }}"
         state: directory
         mode: ug=rwx,o=r
-        owner: "{{ ansible_ssh_user }}"
+        owner: "{{ ansible_env.USER  }}"
         group: dba
       when: swlib_mount_type != "nfs"
     - name: swlib | NFS mount
@@ -34,4 +34,12 @@
 
 - name: swlib | gcscopy
   include_tasks: gcscopy.yml
-  when: swlib_mount_type == "gcs"
+  when: 
+    - swlib_mount_type == "gcs"
+    - instance_env_type != 'gce'
+
+- name: swlib | gsutilcopy
+  include_tasks: gsutilcopy.yml
+  when: 
+    - swlib_mount_type == "gcs"
+    - instance_env_type == 'gce'

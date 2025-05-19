@@ -1,0 +1,121 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+- name: gsutilcopy | Copy GI software from GCS to target GCE instance
+  shell: |
+    set -e
+    {% for i in item.files %}
+    if unzip -l {{ swlib_path }}/{{ i }}"; then
+      echo "File {{ swlib_path }}/{{ i }} already exists locally and is a valid zip archive."
+    else
+      echo "File {{ swlib_path }}/{{ i }} not found, is not a valid zip, or is corrupted. Attempting download from GCS."
+      gsutil cp "gs://{{ swlib_mount_src }}/{{ i }}" "{{ swlib_path }}/{{ i }}"
+    fi
+    {% endfor %}
+  register: shell_result
+  args:
+    executable: /bin/bash
+  with_items:
+    - "{{ gi_software }}"
+    - "{{ gi_interim_patches }}"
+  when:
+    - item.version == oracle_ver
+    - patch_only is not defined
+  changed_when: "'Operation completed' in shell_result.stdout"
+  failed_when: shell_result.rc != 0
+
+- name: gsutilcopy | Copy GI patches from GCS to target GCE instance
+  shell: |
+    set -e
+    if ! "unzip -l {{ swlib_path }}/{{ item.patchfile }}"; then
+        gsutil cp "gs://{{ swlib_mount_src }}/{{ item.patchfile }}" "{{ swlib_path }}/{{ item.patchfile }}"
+    fi
+  register: shell_result
+  args:
+    executable: /bin/bash
+  with_items:
+    - "{{ gi_patches }}"
+  when:
+    - item.release == oracle_rel
+  changed_when: "'Operation completed' in shell_result.stdout"
+
+# overwrite opatch zipfile on database host from gcs every time that may be cached currently in {{ swlib_path }}
+# reason to overwrite is that the opatch zipfile in MOS is named the same, example: p6880880_190000_Linux-x86-64.zip
+# this change downloads OPatch from GCS bucket every time with neglible overhead as opatch zip file is typically ~120M
+- name: gsutilcopy | Copy GI OPatch update files from GCS to target GCE instance
+  shell: |
+    set -e
+    gsutil cp "gs://{{ swlib_mount_src }}/{{ item.patchfile }}" "{{ swlib_path }}/{{ item.patchfile }}"
+  register: shell_result
+  args:
+    executable: /bin/bash
+  with_items:
+    - "{{ opatch_patches }}"
+  when:
+    - item.release == oracle_ver
+    - oracle_rel != "base"
+  changed_when: "'Operation completed' in shell_result.stdout"
+
+- name: gsutilcopy | Copy RDBMS software from GCS to target GCE instance
+  shell: |
+    set -e
+    {% for i in item.files %}
+    if ! "unzip -l {{ swlib_path }}/{{ i }}"; then
+        gsutil cp "gs://{{ swlib_mount_src }}/{{ i }}" "{{ swlib_path }}/{{ i }}"
+    fi
+    {% endfor %}
+  register: shell_result
+  args:
+    executable: /bin/bash
+  with_items:
+    - "{{ rdbms_software }}"
+  when:
+    - item.version == oracle_ver
+    - patch_only is not defined
+    - not free_edition
+  changed_when: "'Operation completed' in shell_result.stdout"
+
+- name: gsutilcopy | Copy RDBMS patches from GCS to target GCE instance
+  shell: |
+    set -e
+    if ! "unzip -l {{ swlib_path }}/{{ item.patchfile }}"; then
+        gsutil cp "gs://{{ swlib_mount_src }}/{{ item.patchfile }}" "{{ swlib_path }}/{{ item.patchfile }}"
+    fi
+  register: shell_result
+  args:
+    executable: /bin/bash
+  with_items:
+    - "{{ rdbms_patches }}"
+  when:
+    - item.release == oracle_rel
+  changed_when: "'Operation completed' in shell_result.stdout"
+
+- name: gsutilcopy | Copy RPM software from GCS to target GCE instance
+  shell: |
+    set -e
+    {% for i in item.files %}
+    if ! "rpm -qp {{ swlib_path }}/{{ i }}"; then
+        gsutil cp "gs://{{ swlib_mount_src }}/{{ i }}" "{{ swlib_path }}/{{ i }}"
+    fi
+    {% endfor %}
+  register: shell_result
+  args:
+    executable: /bin/bash
+  with_items:
+    - "{{ rdbms_software }}"
+  when:
+    - item.version == oracle_ver
+    - free_edition
+  changed_when: "'Operation completed' in shell_result.stdout"
