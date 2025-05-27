@@ -57,6 +57,12 @@ swap_blk_device: "{{ lookup('env','SWAP_BLK_DEVICE')|lower|default('',true) }}"
 # ntp preferred server
 ntp_preferred: "{{ lookup('env','NTP_PREF')|lower|default('',true) }}"
 
+# Secret Name containing a password for SYS user
+sys_secret: "{{ lookup('env','SYS_SECRET')|lower|default('',true) }}"
+
+# Secret Name containing a password for SYSTEM user
+system_secret: "{{ lookup('env','SYSTEM_SECRET')|lower|default('',true) }}"
+
 # DB configuration related variables:
 db_name: "{{ lookup('env','ORA_DB_NAME')|default('ORCL',true) }}"
 db_domain: "{{ lookup('env','ORA_DB_DOMAIN')|default('',true) }}"
