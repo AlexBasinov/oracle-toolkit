@@ -79,6 +79,7 @@ module "compute_instance" {
   source  = "terraform-google-modules/vm/google//modules/compute_instance"
   version = "~> 13.0"
 
+  num_instances       = var.num_instances
   region              = var.region
   zone                = var.zone
   subnetwork          = var.subnetwork
@@ -95,6 +96,37 @@ module "compute_instance" {
   ]
 }
 
+locals {
+  oracle_nodes = [
+    for inst in module.compute_instance.instances_details : {
+      name = inst.name
+      ip   = inst.network_interface[0].network_ip
+      zone = inst.zone
+    }
+  ]
+
+  oracle_nodes_json = jsonencode(local.oracle_nodes)
+}
+
+locals {
+  common_flags = template(<<-EOT
+    %{ if ora_edition != "" }--ora-edition "${ora_edition}" %{ endif }
+    %{ if ora_listener_port != "" }--ora-listener-port "${ora_listener_port}" %{ endif }
+    %{ if ora_redo_log_size != "" }--ora-redo-log-size "${ora_redo_log_size}" %{ endif }
+    %{ if db_name != "" }--db-name "${db_name}" %{ endif }
+    %{ if db_version != "" }--db-version "${db_version}" %{ endif }
+    %{ if data_dir != "" }--data-dir "${data_dir}" %{ endif }
+  EOT,
+  {
+    ora_edition        = var.ora_edition
+    ora_listener_port  = var.ora_listener_port
+    ora_redo_log_size  = var.ora_redo_log_size
+    db_name            = var.db_name
+    db_version         = var.db_version
+    data_dir           = var.data_dir
+  })
+}
+
 resource "random_id" "suffix" {
   byte_length = 4
 }
@@ -104,13 +136,6 @@ resource "google_compute_instance" "control_node" {
   name         = "${var.control_node_name_prefix}-${random_id.suffix.hex}"
   machine_type = var.control_node_machine_type
   zone         = var.zone
-
-  scheduling {
-    max_run_duration {
-      seconds = 604800
-    }
-    instance_termination_action = "DELETE"
-  }
 
   boot_disk {
     initialize_params {
@@ -133,10 +158,8 @@ resource "google_compute_instance" "control_node" {
   }
 
   metadata_startup_script = templatefile("${path.module}/scripts/setup.sh.tpl", {
+    oracle_nodes_json   = local.oracle_nodes_json
     gcs_source          = var.gcs_source
-    instance_name       = module.compute_instance.instances_details[0].name
-    instance_zone       = module.compute_instance.instances_details[0].zone
-    ip_addr             = module.compute_instance.instances_details[0].network_interface[0].network_ip
     asm_disk_config     = jsonencode(local.asm_disk_config)
     data_mounts_config  = jsonencode(local.data_mounts_config)
     swap_blk_device     = "/dev/disk/by-id/google-swap"
@@ -153,4 +176,18 @@ resource "google_compute_instance" "control_node" {
   })
 
   depends_on = [module.compute_instance]
+}
+
+resource "google_dns_managed_zone" "example" {
+  count    = var.create_zone ? 1 : 0
+  name     = var.dns_zone_name
+  dns_name = var.dns_name
+}
+
+resource "google_dns_record_set" "primary" {
+  name         = "primary.${google_dns_managed_zone.prod.dns_name}"
+  type         = "A"
+  ttl          = 300
+  managed_zone = var.dns_zone_name
+  rrdatas      = []
 }

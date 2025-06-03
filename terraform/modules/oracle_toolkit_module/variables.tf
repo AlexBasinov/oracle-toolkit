@@ -224,3 +224,25 @@ variable "gcs_source" {
     error_message = "The gcs_source must be a valid GCS path starting with 'gs://' and ending in '.zip'."
   }
 }
+
+variable "num_instances" {
+  description = "Number of standby nodes (0 means single instance)"
+  type        = number
+  default     = 0
+}
+
+variable "create_zone" {
+  description = "Whether to create the managed DNS zone."
+  type        = bool
+  default     = false
+}
+
+variable "dns_name" {
+  description = "The DNS domain name (must end with a dot)."
+  type        = string
+}
+
+variable "dns_zone_name" {
+  description = "Name of the existing or new Cloud DNS managed zone."
+  type        = string
+}
