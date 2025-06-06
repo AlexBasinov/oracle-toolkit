@@ -148,8 +148,7 @@ resource "google_compute_instance" "control_node" {
     ora_edition         = var.ora_edition
     ora_listener_port   = var.ora_listener_port
     ora_redo_log_size   = var.ora_redo_log_size
-    sys_secret_path     = var.sys_secret_path
-    system_secret_path  = var.system_secret_path
+    secret_path         = var.secret_path
   })
 
   depends_on = [module.compute_instance]

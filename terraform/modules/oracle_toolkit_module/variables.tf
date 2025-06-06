@@ -225,22 +225,12 @@ variable "gcs_source" {
   }
 }
 
-variable "sys_secret_path" {
-  description = "Secret Manager resource path for the Oracle SYS user password"
+variable "secret_path" {
+  description = "Secret Manager resource path containing the password to be used for both the Oracle SYS and SYSTEM users"
   type        = string
 
   validation {
-    condition     = can(regex("^projects/[^/]+/secrets/[^/]+/versions/[^/]+$", var.sys_secret_path))
-    error_message = "sys_secret_path must be in the format: projects/<project>/secrets/<secret_name>/versions/<version>"
-  }
-}
-
-variable "system_secret_path" {
-  description = "Secret Manager resource path for the Oracle SYSTEM user password"
-  type        = string
-
-  validation {
-    condition     = can(regex("^projects/[^/]+/secrets/[^/]+/versions/[^/]+$", var.system_secret_path))
-    error_message = "system_secret_path must be in the format: projects/<project>/secrets/<secret_name>/versions/<version>"
+    condition     = can(regex("^projects/[^/]+/secrets/[^/]+/versions/[^/]+$", var.secret_path))
+    error_message = "secret_path must be in the format: projects/<project>/secrets/<secret_name>/versions/<version>"
   }
 }

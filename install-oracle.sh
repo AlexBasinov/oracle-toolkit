@@ -248,8 +248,7 @@ INSTANCE_SSH_EXTRA_ARGS_PARAM="^/.+$"
 NTP_PREF="${NTP_PREF}"
 NTP_PREF_PARAM=".*"
 
-SYS_SECRET_PATH="${SYS_SECRET_PATH}"
-SYSTEM_SECRET_PATH="${SYSTEM_SECRET_PATH}"
+SECRET_PATH="${SECRET_PATH}"
 SECRET_PATH_PARAM="^projects/[^/]+/secrets/[^/]+/versions/[^/]+$"
 
 SWAP_BLK_DEVICE="${SWAP_BLK_DEVICE}"
@@ -519,12 +518,8 @@ while true; do
     SWAP_BLK_DEVICE="$2"
     shift
     ;;
-  --sys-secret-path)
-    SYS_SECRET_PATH="$2"
-    shift
-    ;;
-  --system-secret-path)
-    SYSTEM_SECRET_PATH="$2"
+  --secret-path)
+    SECRET_PATH="$2"
     shift
     ;;
   --check-instance)
@@ -811,13 +806,8 @@ shopt -s nocasematch
   echo "Incorrect parameter provided for compatible-rdbms: $COMPATIBLE_RDBMS"
   exit 1
 }
-[[ ! "$SYS_SECRET_PATH" =~ $SECRET_PATH_PARAM ]] && {
-  echo "Incorrect parameter provided for sys-secret-path: $SYS_SECRET_PATH"
-  echo "Expected format: projects/<project>/secrets/<secret_name>/versions/<version>"
-  exit 1
-}
-[[ ! "$SYSTEM_SECRET_PATH" =~ $SECRET_PATH_PARAM ]] && {
-  echo "Incorrect parameter provided for system-secret-path: $SYSTEM_SECRET_PATH"
+[[ ! "$SECRET_PATH" =~ $SECRET_PATH_PARAM ]] && {
+  echo "Incorrect parameter provided for secret-path: $SECRET_PATH"
   echo "Expected format: projects/<project>/secrets/<secret_name>/versions/<version>"
   exit 1
 }
@@ -1043,8 +1033,7 @@ export ORA_RELEASE
 export PB_LIST
 export PRIMARY_IP_ADDR
 export SWAP_BLK_DEVICE
-export SYS_SECRET_PATH
-export SYSTEM_SECRET_PATH
+export SECRET_PATH
 
 echo -e "Running with parameters from command line or environment variables:\n"
 set | grep -E '^(ORA_|BACKUP_|GCS_|ARCHIVE_|INSTANCE_|PB_|ANSIBLE_|CLUSTER|PRIMARY)' | grep -v '_PARAM='
