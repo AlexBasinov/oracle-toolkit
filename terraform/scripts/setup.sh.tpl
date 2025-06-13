@@ -10,6 +10,10 @@ control_node_zone="$(basename "$control_node_zone_full")"
 control_node_project_id="$(curl -s http://metadata.google.internal/computeMetadata/v1/project/project-id -H 'Metadata-Flavor: Google')"
   
 cleanup() {
+  # https://cloud.google.com/compute/docs/troubleshooting/troubleshoot-os-login#invalid_argument
+  echo "Deleting the public SSH key from the control node's service account OS Login profile to prevent exceeding the 32KiB limit"
+  gcloud --queit compute os-login ssh-keys remove --key-file=~/.ssh/google_compute_engine.pub
+
   echo "Deleting '$control_node_name' GCE instance in zone '$control_node_zone' in project '$control_node_project_id'..."
   gcloud --quiet compute instances delete "$control_node_name" --zone="$control_node_zone" --project="$control_node_project_id"
 }
