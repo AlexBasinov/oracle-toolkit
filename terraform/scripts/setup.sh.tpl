@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 
 set -Eeuo pipefail
 
@@ -15,8 +15,8 @@ cleanup() {
   if ! gcloud --quiet compute os-login ssh-keys remove --key-file=/root/.ssh/google_compute_engine.pub; then
     echo "WARNING: Failed to remove SSH key. Continuing with instance deletion."
   fi
-  echo "Deleting '$control_node_name' GCE instance in zone '$control_node_zone' in project '$control_node_project_id'..."
-  gcloud --quiet compute instances delete "$control_node_name" --zone="$control_node_zone" --project="$control_node_project_id"
+  # echo "Deleting '$control_node_name' GCE instance in zone '$control_node_zone' in project '$control_node_project_id'..."
+  # gcloud --quiet compute instances delete "$control_node_name" --zone="$control_node_zone" --project="$control_node_project_id"
 }
 
 trap cleanup EXIT
@@ -25,20 +25,6 @@ DEST_DIR="/oracle-toolkit"
 
 apt-get update
 apt-get install -y ansible python3-jmespath unzip
-
-echo "Triggering SSH key creation via OS Login by running a one-time gcloud compute ssh command."
-echo "This ensures that a persistent SSH key pair is created and associated with your Google Account."
-echo "The private auto-generated ssh key (~/.ssh/google_compute_engine) will be used by Ansible to connect to the VM and run playbooks remotely."
-echo "Command:"
-echo "gcloud compute ssh '${instance_name}' --zone='${instance_zone}' --internal-ip --quiet --command whoami"
-
-timeout 2m bash -c 'until gcloud compute ssh "${instance_name}" --zone="${instance_zone}" --internal-ip --quiet --command whoami; do
-  echo "Waiting for SSH to become available on '${instance_name}'..."
-  sleep 5
-done' || {
-  echo "ERROR: Timed out waiting for SSH"
-  exit 1
-}
 
 control_node_sa="$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email -H 'Metadata-Flavor: Google')"
 echo "Downloading '${gcs_source}' to /tmp"
@@ -57,26 +43,60 @@ if [[ -z "$ssh_user" ]]; then
   exit 1
 fi
 
+num_nodes="$(echo '${oracle_nodes_json}' | jq "length")"
+echo "num_nodes=$num_nodes"
+
+if [[ "$num_nodes" > 1 ]]; then
+  # extract the IP of the VM whose name ends with "-1"
+  primary_ip="$(echo '${oracle_nodes_json}' | jq -r '.[] | select(.name | endswith("-1")) | .ip')"
+  if [[ -z "$primary_ip" ]]; then
+    echo "ERROR: Could not find a primary node ending with '-1'."
+    exit 1
+  fi
+  echo "PRIMARY_IP: $primary_ip"
+else
+  echo "Single-node deployment - no PRIMARY_IP needed"
+fi
+
 cd "$DEST_DIR"
 
-bash install-oracle.sh \
---instance-ssh-user "$ssh_user" \
---instance-ssh-key /root/.ssh/google_compute_engine \
-%{ if ip_addr != "" }--instance-ip-addr "${ip_addr}" %{ endif } \
-%{ if asm_disk_config != "" }--ora-asm-disks-json '${asm_disk_config}' %{ endif } \
-%{ if data_mounts_config != "" }--ora-data-mounts-json '${data_mounts_config}' %{ endif } \
-%{ if swap_blk_device != "" }--swap-blk-device "${swap_blk_device}" %{ endif } \
-%{ if ora_swlib_bucket != "" }--ora-swlib-bucket "${ora_swlib_bucket}" %{ endif } \
-%{ if ora_version != "" }--ora-version "${ora_version}" %{ endif } \
-%{ if ora_backup_dest != "" }--backup-dest "${ora_backup_dest}" %{ endif } \
-%{ if ora_db_name != "" }--ora-db-name "${ora_db_name}" %{ endif } \
-%{ if ora_db_container != "" }--ora-db-container "${ora_db_container}" %{ endif } \
-%{ if ntp_pref != "" }--ntp-pref "${ntp_pref}" %{ endif } \
-%{ if ora_release != "" }--ora-release "${ora_release}" %{ endif } \
-%{ if ora_edition != "" }--ora-edition "${ora_edition}" %{ endif } \
-%{ if ora_listener_port != "" }--ora-listener-port "${ora_listener_port}" %{ endif } \
-%{ if ora_redo_log_size != "" }--ora-redo-log-size "${ora_redo_log_size}" %{ endif } \
-%{ if skip_database_config }--skip-database-config %{ endif } \
-%{ if install_workload_agent }--install-workload-agent %{ endif } \
-%{ if oracle_metrics_secret != "" }--oracle-metrics-secret "${oracle_metrics_secret}" %{ endif } \
-%{ if db_password_secret != "" }--db-password-secret "${db_password_secret}" %{ endif }
+while read -r node; do
+  node_name="$(echo "$node" | jq -r '.name')"
+  node_ip="$(echo "$node" | jq -r '.ip')"
+  node_zone="$(echo "$node" | jq -r '.zone')"
+  echo "Name: $node_name, IP: $node_ip, Zone: $node_zone"
+
+  echo "Triggering SSH key creation via OS Login by running a one-time gcloud compute ssh command."
+  echo "This ensures that a persistent SSH key pair is created and associated with your Google Account."
+  echo "The private auto-generated ssh key (~/.ssh/google_compute_engine) will be used by Ansible to connect to the VM and run playbooks remotely."
+  echo "Command:"
+  echo "gcloud compute ssh '$node_name' --zone='$node_zone' --internal-ip --quiet --command whoami"
+
+  timeout 2m bash -c "until gcloud compute ssh \"$node_name\" --zone=\"$node_zone\" --internal-ip --quiet --command whoami; do
+    echo \"Waiting for SSH to become available on '$node_name'...\"
+    sleep 5
+  done" || {
+    echo "ERROR: Timed out waiting for SSH"
+    exit 1
+  }
+
+  if [[ "$node_name" == *"-1" ]]; then
+    echo "Configuring PRIMARY node: $node_name"
+    bash install-oracle.sh \
+    --cluster-type NONE \
+    --instance-ip-addr "$node_ip" \
+    --instance-ssh-user "$ssh_user" \
+    --instance-ssh-key /root/.ssh/google_compute_engine \
+    ${common_flags}
+  else
+    echo "Configuring STANDBY node: $node_name"
+    bash install-oracle.sh \
+    --cluster-type DG \
+    --instance-ip-addr "$node_ip" \
+    --primary-ip-addr "$primary_ip" \
+    --instance-ssh-user "$ssh_user" \
+    --instance-ssh-key /root/.ssh/google_compute_engine \
+    ${common_flags}
+  fi
+done < <(echo "${oracle_nodes_json}" | jq -c '.[]')
+

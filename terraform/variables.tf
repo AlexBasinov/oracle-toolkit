@@ -200,12 +200,6 @@ variable "project_id" {
   type        = string
 }
 
-variable "region" {
-  description = "The GCP region where the instance and related resources will be deployed (e.g., us-central1)."
-  type        = string
-  default     = "us-central1"
-}
-
 variable "vm_service_account" {
   description = "The service account used for managing compute instance permissions."
   type        = string
@@ -228,6 +222,51 @@ variable "source_image_project" {
   default     = "oracle-linux-cloud"
 }
 
+# variable "deployment_type" {
+#   description = "Type of deployment: single-instance or dual-instance Data Guard deployment"
+#   type        = string
+#   validation {
+#     condition     = contains(["single-instance", "dual-instance"], var.deployment_type)
+#     error_message = "deployment_type must be 'single-instance' or 'dual-instance'"
+#   }
+# }
+
+variable "region" {
+  description = "The GCP region where the instance and related resources will be deployed (e.g., us-central1)."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "region1" {
+  description = "The GCP region where the instance and related resources will be deployed (e.g., us-central1)."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "region2" {
+  description = "The GCP region where the instance and related resources will be deployed (e.g., us-central1)."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "zone" {
+  description = "The specific availability zone within the selected GCP region (e.g., us-central1-b)."
+  type        = string
+  default     = "us-central1-b"
+}
+
+variable "zone1" {
+  description = "The specific availability zone within the selected GCP region (e.g., us-central1-b)."
+  type        = string
+  default     = "us-central1-b"
+}
+
+variable "zone2" {
+  description = "The specific availability zone within the selected GCP region (e.g., us-central1-b)."
+  type        = string
+  default     = "us-central1-c"
+}
+
 variable "network" {
   description = "The name of the GCP network to which the instance will be attached."
   type        = string
@@ -237,14 +276,35 @@ variable "network" {
 variable "subnetwork" {
   description = "The name of the GCP subnetwork to which the instance will be attached; customize if using custom subnet creation mode."
   type        = string
-  default     = ""
+  default     = "default"
 }
 
-variable "zone" {
-  description = "The specific availability zone within the selected GCP region (e.g., us-central1-b)."
+variable "subnetwork1" {
+  description = "The name of the GCP subnetwork to which the instance will be attached; customize if using custom subnet creation mode."
   type        = string
-  default     = "us-central1-b"
+  default     = "default"
 }
+
+variable "subnetwork2" {
+  description = "The name of the GCP subnetwork to which the instance will be attached; customize if using custom subnet creation mode."
+  type        = string
+  default     = "default"
+}
+
+# variable "subnetworks" {
+#   description = "List of GCP subnetworks for dual-node Data Guard deployment"
+#   type        = list(string)
+#   default     = []
+# }
+
+
+
+# variable "zones" {
+#   description = "List of availability zones for dual-node Data Guard deployment"
+#   type        = list(string)
+#   default     = ["us-central1-b", "us-central1-c"]
+# }
+
 
 variable "assign_public_ip" {
   description = "Whether to assign a public IP address to the control node VM. Set to false if the environment already has internet access via a Cloud NAT."
@@ -294,3 +354,9 @@ variable "skip_database_config" {
   type        = bool
   default     = false
 }
+
+# variable "num_instances" {
+#   description = "Number of standby nodes (0 means single instance)"
+#   type        = number
+#   default     = 0
+# }
