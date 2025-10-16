@@ -1,0 +1,351 @@
+---
+- name: Validate Configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Check for mandatory variables
+      ansible.builtin.assert:
+        that:
+          - db_password_secret is defined
+          - ora_swlib_bucket is defined
+          - instance_ip_addr is defined
+        fail_msg: "A required variable is not defined. Please check your gcp_oracle.yml."
+
+    - name: Validate ora_version value
+      ansible.builtin.assert:
+        that:
+          - ora_version is match('^(23(\.0\.0\.0\.0)?|21(\.3\.0\.0\.0)?|19(\.3\.0\.0\.0)?|18(\.0\.0\.0\.0)?|12(\.[12])?(\.2\.0\.1\.0|\.1\.0\.2\.0)?|11(\.2\.0\.4\.0)?)$')
+        fail_msg: "Invalid ora_version '{{ ora_version }}'."
+
+    - name: Validate ora_release value
+      ansible.builtin.assert:
+        that:
+          - ora_release is match('^(base|latest|[0-9]{,2}\.[0-9]{,2}\.[0-9]{,2}\.[0-9]{,2}\.[0-9]{,6})$')
+        fail_msg: "Invalid ora_release '{{ ora_release }}'."
+
+    - name: Validate ora_edition value
+      ansible.builtin.assert:
+        that:
+          - ora_edition in ['EE', 'SE', 'SE2', 'FREE']
+        fail_msg: "Invalid ora_edition '{{ ora_edition }}'. Must be one of: EE, SE, SE2, FREE."
+
+    - name: Validate cluster_type value
+      ansible.builtin.assert:
+        that:
+          - cluster_type in ['NONE', 'RAC', 'DG']
+        fail_msg: "Invalid cluster_type '{{ cluster_type }}'. Must be one of: NONE, RAC, DG."
+
+    - name: Validate ora_swlib_bucket value
+      ansible.builtin.assert:
+        that:
+          - ora_swlib_bucket is match('^(gs:\/\/|https?:\/\/)')
+        fail_msg: "Invalid ora_swlib_bucket '{{ ora_swlib_bucket }}'. Must start with gs:// or http(s)://."
+      when: ora_edition != 'FREE'
+
+    - name: Validate ora_swlib_type value
+      ansible.builtin.assert:
+        that:
+          - ora_swlib_type in ['', 'GCS', 'GCSFUSE', 'NFS', 'GCSDIRECT', 'GCSTRANSFER']
+        fail_msg: "Invalid ora_swlib_type '{{ ora_swlib_type }}'."
+
+    - name: Validate ora_disk_mgmt value
+      ansible.builtin.assert:
+        that:
+          - ora_disk_mgmt in ['ASMLIB', 'ASMUDEV', 'UDEV', 'FS']
+        fail_msg: "Invalid ora_disk_mgmt '{{ ora_disk_mgmt }}'. Must be one of: ASMLIB, ASMUDEV, UDEV, FS."
+
+    - name: Validate ora_db_type value
+      ansible.builtin.assert:
+        that:
+          - ora_db_type in ['MULTIPURPOSE', 'DATA_WAREHOUSING', 'OLTP']
+        fail_msg: "Invalid ora_db_type '{{ ora_db_type }}'. Must be one of: MULTIPURPOSE, DATA_WAREHOUSING, OLTP."
+
+    - name: Validate conditional requirements for RAC
+      when: cluster_type == "RAC"
+      ansible.builtin.assert:
+        that:
+          - groups['rac_nodes'] | length >= 2
+          - ora_disk_mgmt != 'FS'
+        fail_msg: "RAC deployments require at least two nodes and ASM disk management."
+
+    - name: Validate conditional requirements for Data Guard
+      when: cluster_type == "DG"
+      ansible.builtin.assert:
+        that:
+          - ora_edition == 'EE'
+          - primary_ip_addr is defined
+        fail_msg: "Data Guard deployments require Enterprise Edition and a defined primary_ip_addr."
+
+    - name: Validate ASM is not used with FS
+      when: ora_disk_mgmt == 'FS'
+      ansible.builtin.assert:
+        that:
+          - not (ora_data_destination is match('^\+'))
+          - not (ora_reco_destination is match('^\+'))
+          - not (backup_dest is match('^\+'))
+        fail_msg: "Cannot specify an ASM diskgroup when ora_disk_mgmt is FS."
+
+    - name: Validate db_password_secret format
+      ansible.builtin.assert:
+        that:
+          - db_password_secret is match('^projects/[^/]+/secrets/[^/]+/versions/[^/]+$')
+        fail_msg: "Invalid db_password_secret format."
+      when: db_password_secret is defined
+
+    - name: Validate oracle_metrics_secret format
+      ansible.builtin.assert:
+        that:
+          - oracle_metrics_secret is match('^projects/[^/]+/secrets/[^/]+/versions/[^/]+$')
+        fail_msg: "Invalid oracle_metrics_secret format."
+      when: oracle_metrics_secret is defined
+
+    - name: Validate workload agent dependency
+      ansible.builtin.assert:
+        that:
+          - install_workload_agent
+        fail_msg: "install_workload_agent must be true when oracle_metrics_secret is defined."
+      when: oracle_metrics_secret is defined
+
+    - name: Validate Data Guard protection mode
+      ansible.builtin.assert:
+        that:
+          - data_guard_protection_mode in ['Maximum Performance', 'Maximum Availability', 'Maximum Protection']
+        fail_msg: "Invalid data_guard_protection_mode."
+      when: data_guard_protection_mode is defined
+
+    - name: Validate path formats
+      ansible.builtin.assert:
+        that:
+          - item is match('^/.+')
+        fail_msg: "Invalid path format for {{ item }}. Must be an absolute path."
+      loop:
+        - "{{ ora_swlib_path }}"
+        - "{{ ora_staging }}"
+        - "{{ backup_dest }}"
+        - "{{ backup_script_location }}"
+        - "{{ backup_log_location }}"
+
+    - name: Validate destination formats
+      ansible.builtin.assert:
+        that:
+          - item is match('^(\/|\+)?[a-zA-Z0-9/_-]+$')
+        fail_msg: "Invalid destination format for {{ item }}."
+      loop:
+        - "{{ ora_data_destination }}"
+        - "{{ ora_reco_destination }}"
+
+    - name: Validate Oracle object names
+      ansible.builtin.assert:
+        that:
+          - item is match('^[a-zA-Z0-9_$]+$')
+        fail_msg: "Invalid format for {{ item }}."
+      loop:
+        - "{{ ora_db_name }}"
+        - "{{ ora_listener_name }}"
+        - "{{ ora_pdb_name_prefix }}"
+
+    - name: Validate listener port
+      ansible.builtin.assert:
+        that:
+          - ora_listener_port | int > 1023
+          - ora_listener_port | int < 65536
+        fail_msg: "Listener port must be between 1024 and 65535."
+
+    - name: Validate PDB count
+      ansible.builtin.assert:
+        that:
+          - ora_pdb_count | int >= 0
+        fail_msg: "PDB count must be a non-negative number."
+
+    - name: Validate redo log size
+      ansible.builtin.assert:
+        that:
+          - ora_redo_log_size is match('^[0-9]+MB$')
+        fail_msg: "Redo log size must be in the format '100MB'."
+
+    - name: Validate GCS backup bucket
+      ansible.builtin.assert:
+        that:
+          - not gcs_backup_bucket is match('.*\/$')
+        fail_msg: "gcs_backup_bucket must not end with a slash."
+      when: gcs_backup_bucket is defined
+
+    - name: Validate NFS backup mount
+      ansible.builtin.assert:
+        that:
+          - nfs_backup_mount is match('^[[:alnum:][:punct:]]*:[[:alnum:][:punct:]]*$')
+        fail_msg: "Invalid nfs_backup_mount format."
+      when: nfs_backup_mount is defined
+
+    - name: Validate boolean flags
+      ansible.builtin.assert:
+        that:
+          - item in ['TRUE', 'FALSE']
+        fail_msg: "Invalid boolean value for {{ item }}. Must be TRUE or FALSE."
+      loop:
+        - "{{ ora_role_separation }}"
+        - "{{ ora_db_container }}"
+
+    - name: Validate ora_db_domain
+      ansible.builtin.assert:
+        that:
+          - ora_db_domain is match('^$|^[A-Za-z][A-Za-z0-9._-]{0,127}$')
+        fail_msg: "Invalid ora_db_domain format."
+      when: ora_db_domain is defined
+
+    - name: Validate memory targets
+      ansible.builtin.assert:
+        that:
+          - item | int >= 0
+        fail_msg: "Invalid memory target for {{ item }}. Must be a non-negative integer."
+      loop:
+        - "{{ ora_pga_target_mb }}"
+        - "{{ ora_sga_target_mb }}"
+
+    - name: Validate backup redundancy
+      ansible.builtin.assert:
+        that:
+          - item | int >= 0
+        fail_msg: "Invalid backup redundancy value for {{ item }}. Must be a non-negative integer."
+      loop:
+        - "{{ backup_redundancy }}"
+        - "{{ archive_redundancy }}"
+        - "{{ archive_online_days }}"
+
+    - name: Validate backup schedule days
+      ansible.builtin.assert:
+        that:
+          - item is match('^[0-6]-?[0-6]?$')
+        fail_msg: "Invalid backup schedule day format for {{ item }}."
+      loop:
+        - "{{ backup_level0_days }}"
+        - "{{ backup_level1_days }}"
+
+    - name: Validate backup schedule time
+      ansible.builtin.assert:
+        that:
+          - backup_start_hour is match('^(2[0-3]|[01]?[0-9])$')
+          - backup_start_min is match('^[0-5][0-9]$')
+          - archive_backup_min is match('^[0-5][0-9]$')
+        fail_msg: "Invalid backup schedule time format."
+
+    - name: Validate gcs_backup_temp_path
+      ansible.builtin.assert:
+        that:
+          - gcs_backup_temp_path is match('^/.+')
+        fail_msg: "Invalid gcs_backup_temp_path format. Must be an absolute path."
+      when: gcs_backup_temp_path is defined
+
+    - name: Validate nfs_backup_config
+      ansible.builtin.assert:
+        that:
+          - nfs_backup_config in ['nfsv3', 'nfsv4']
+        fail_msg: "Invalid nfs_backup_config. Must be nfsv3 or nfsv4."
+      when: nfs_backup_config is defined
+
+    - name: Validate compatible_rdbms
+      ansible.builtin.assert:
+        that:
+          - compatible_rdbms is match('^[0-9][0-9]\.[0-9].*')
+        fail_msg: "Invalid compatible_rdbms format."
+      when: compatible_rdbms is defined and compatible_rdbms != '0'
+
+    - name: Validate ora_asm_disks
+      ansible.builtin.assert:
+        that:
+          - ora_asm_disks is match('^/.+')
+        fail_msg: "Invalid ora_asm_disks format. Must be an absolute path."
+      when: ora_asm_disks is defined
+
+    - name: Validate ora_data_mounts
+      ansible.builtin.assert:
+        that:
+          - ora_data_mounts is match('^/.+')
+        fail_msg: "Invalid ora_data_mounts format. Must be an absolute path."
+      when: ora_data_mounts is defined
+
+    - name: Validate ora_asm_disks_json
+      ansible.builtin.assert:
+        that:
+          - ora_asm_disks_json | from_json
+        fail_msg: "Invalid ora_asm_disks_json format. Must be a valid JSON string."
+      when: ora_asm_disks_json is defined
+
+    - name: Validate ora_data_mounts_json
+      ansible.builtin.assert:
+        that:
+          - ora_data_mounts_json | from_json
+        fail_msg: "Invalid ora_data_mounts_json format. Must be a valid JSON string."
+      when: ora_data_mounts_json is defined
+
+    - name: Validate swap_blk_device
+      ansible.builtin.assert:
+        that:
+          - swap_blk_device is match('^/dev/.+')
+        fail_msg: "Invalid swap_blk_device format. Must be a device path."
+      when: swap_blk_device is defined
+
+    - name: Validate ora_db_charset
+      ansible.builtin.assert:
+        that:
+          - ora_db_charset is match('^[A-Z0-9]+$')
+        fail_msg: "Invalid ora_db_charset format."
+      when: ora_db_charset is defined
+
+    - name: Validate ora_db_ncharset
+      ansible.builtin.assert:
+        that:
+          - ora_db_ncharset is match('^[A-Z0-9]+$')
+        fail_msg: "Invalid ora_db_ncharset format."
+      when: ora_db_ncharset is defined
+
+    - name: Validate instance_hostname
+      ansible.builtin.assert:
+        that:
+          - instance_hostname is match('^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$')
+        fail_msg: "Invalid instance_hostname format."
+      when: instance_hostname is defined
+
+    - name: Validate instance_ssh_user
+      ansible.builtin.assert:
+        that:
+          - instance_ssh_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+        fail_msg: "Invalid instance_ssh_user format."
+      when: instance_ssh_user is defined
+
+    - name: Validate instance_ssh_key
+      ansible.builtin.assert:
+        that:
+          - instance_ssh_key is match('^/.+')
+        fail_msg: "Invalid instance_ssh_key format. Must be an absolute path."
+      when: instance_ssh_key is defined
+
+    - name: Validate ntp_pref
+      ansible.builtin.assert:
+        that:
+          - ntp_pref is match('^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$')
+        fail_msg: "Invalid ntp_pref format."
+      when: ntp_pref is defined
+
+    - name: Validate gcs_backup_config
+      ansible.builtin.assert:
+        that:
+          - gcs_backup_config in ['TRUE', 'FALSE']
+        fail_msg: "Invalid gcs_backup_config value. Must be TRUE or FALSE."
+      when: gcs_backup_config is defined
+
+    - name: Validate skip_platform_compatibility
+      ansible.builtin.assert:
+        that:
+          - skip_platform_compatibility in ['TRUE', 'FALSE']
+        fail_msg: "Invalid skip_platform_compatibility value. Must be TRUE or FALSE."
+      when: skip_platform_compatibility is defined
+
+    - name: Validate instance_hostgroup_name
+      ansible.builtin.assert:
+        that:
+          - instance_hostgroup_name is match('^[a-zA-Z0-9_-]+$')
+        fail_msg: "Invalid instance_hostgroup_name format."
+      when: instance_hostgroup_name is defined

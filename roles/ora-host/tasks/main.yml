@@ -126,7 +126,6 @@
     file: google_cloud_cli.yml
   when:
     - ansible_os_family == "RedHat"
-    - install_workload_agent | bool
     - oracle_metrics_secret | length > 0 or db_password_secret | length > 0
   tags: install-google-cloud-cli
 

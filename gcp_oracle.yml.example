@@ -1,0 +1,109 @@
+#
+# Oracle installation configuration
+#
+ora_version: "19.3.0.0.0"
+ora_release: "latest"
+ora_edition: "EE"
+cluster_type: "NONE" # NONE|RAC|DG
+ora_swlib_bucket: "gs://bmaas-testing-oracle-software"
+ora_swlib_type: "GCS"
+ora_swlib_path: "/u01/swlib"
+ora_staging: "/u01/swlib"
+ora_disk_mgmt: "FS" # ASMLIB|ASMUDEV|UDEV|FS
+ora_role_separation: "TRUE"
+ora_data_destination: "/u02/oradata"
+ora_reco_destination: "/u03/fast_recovery_area"
+ora_asm_disks: ''
+ora_asm_disks_json: ''
+ora_data_mounts_json: '[{"blk_device":"/dev/disk/by-id/google-oracle_home","fstype":"xfs","mount_opts":"nofail","mount_point":"/u01","name":"u01","purpose":"software"},{"blk_device":"/dev/disk/by-id/google-data","fstype":"xfs","mount_opts":"nofail","mount_point":"/u02","name":"u02","purpose":"data"},{"blk_device":"/dev/disk/by-id/google-reco","fstype":"xfs","mount_opts":"nofail","mount_point":"/u03","name":"u03","purpose":"reco"}]'
+swap_blk_device: "/dev/disk/by-id/google-swap"
+
+#
+# Database configuration
+#
+ora_db_name: "ORCL"
+ora_db_domain: ""
+ora_db_charset: "AL32UTF8"
+ora_db_ncharset: "AL16UTF16"
+ora_db_container: "False"
+ora_db_type: "MULTIPURPOSE" # MULTIPURPOSE|DATA_WAREHOUSING|OLTP
+ora_pdb_name_prefix: "PDB"
+ora_pdb_count: 1
+ora_redo_log_size: "100MB"
+ora_pga_target_mb: 0
+ora_sga_target_mb: 0
+db_password_secret: "projects/abasinov-test/secrets/sys_password/versions/latest"
+
+#
+# Listener configuration
+#
+ora_listener_name: "LISTENER"
+ora_listener_port: 1521
+
+#
+# Host configuration
+#
+instance_ip_addr: "10.128.0.35"
+instance_hostname: "oracle-db"
+instance_ssh_user: "sa_105448896290216900040"
+instance_ssh_key: "/root/.ssh/google_compute_engine"
+instance_ssh_extra_args: "-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no"
+ntp_pref: ""
+
+#
+# Data Guard configuration
+#
+#primary_ip_addr: "10.0.0.2"
+#data_guard_protection_mode: "Maximum Performance"
+
+#
+# RAC configuration
+#
+#cluster_config:
+#  - cluster_name: "oracle-rac"
+#    scan_name: "oracle-rac-scan"
+#    scan_port: 1521
+#    public_net: "192.168.1.0"
+#    private_net: "10.0.0.0"
+#    nodes:
+#      - node_name: "rac-node1"
+#        host_ip: "10.0.0.3"
+#        vip_name: "rac-node1-vip"
+#        vip_ip: "10.0.0.4"
+#      - node_name: "rac-node2"
+#        host_ip: "10.0.0.5"
+#        vip_name: "rac-node2-vip"
+#        vip_ip: "10.0.0.6"
+
+#
+# Backup configuration
+#
+backup_dest: "/u03/backups"
+backup_redundancy: 2
+archive_redundancy: 2
+archive_online_days: 7
+backup_level0_days: "0"
+backup_level1_days: "1-6"
+backup_start_hour: "01"
+backup_start_min: "00"
+archive_backup_min: "30"
+backup_script_location: "/home/oracle/scripts"
+backup_log_location: "/home/oracle/logs"
+gcs_backup_config: ""
+gcs_backup_bucket: ""
+gcs_backup_temp_path: "/u01/gcsfusetmp"
+nfs_backup_config: ""
+nfs_backup_mount: ""
+
+#
+# Workload agent configuration
+#
+install_workload_agent: false
+oracle_metrics_secret: "projects/abasinov-test/secrets/workload-agent-user-password/versions/latest"
+
+#
+# Other
+#
+skip_platform_compatibility: 0
+compatible_rdbms: "0"
+instance_hostgroup_name: "dbasm"
