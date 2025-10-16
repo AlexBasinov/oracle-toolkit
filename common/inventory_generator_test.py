@@ -49,6 +49,20 @@ class TestAnsibleInventoryGenerator(unittest.TestCase):
             'PRIMARY_IP_ADDR': '192.168.0.1'
         }
 
+    def get_expected_dg_env_vars(self) -> Dict[str, str]:
+        """Returns a dictionary of environment variables for a Data Guard setup."""
+        return {
+            'INSTANCE_SSH_USER': 'ansible',
+            'INSTANCE_SSH_KEY': '/home/ansible/.ssh/ansible',
+            'INSTANCE_SSH_EXTRA_ARGS': '-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no',
+            'INSTANCE_HOSTGROUP_NAME': 'gce',
+            'INSTANCE_HOSTNAME': 'standby-host',
+            'INSTANCE_IP_ADDR': '192.168.0.2',
+            'ORA_DB_NAME': 'test',
+            'CLUSTER_TYPE': 'DG',
+            'PRIMARY_IP_ADDR': '192.168.0.1'
+        }
+
     def get_expected_single_instance_inventory_dict(self) -> Dict:
         """Returns the expected dictionary structure for a single-instance inventory."""
         return {
@@ -58,13 +72,7 @@ class TestAnsibleInventoryGenerator(unittest.TestCase):
                         'ansible_ssh_host': '192.168.0.1',
                         'ansible_ssh_user': 'ansible',
                         'ansible_ssh_private_key_file': '/home/ansible/.ssh/ansible',
-                        'ansible_ssh_extra_args': [
-                                '-o ServerAliveInterval=60',
-                                '-o ServerAliveCountMax=3',
-                                '-o StrictHostKeyChecking=no',
-                                '-o UserKnownHostsFile=/dev/null',
-                                '-o IdentityAgent=no'
-                        ]
+                        'ansible_ssh_extra_args': '-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no'
                     }
                 }
             }
@@ -81,13 +89,7 @@ class TestAnsibleInventoryGenerator(unittest.TestCase):
                         'vip_ip': '192.168.0.101',
                         'ansible_ssh_user': 'ansible',
                         'ansible_ssh_private_key_file': '/home/ansible/.ssh/ansible',
-                        'ansible_ssh_extra_args': [
-                                '-o ServerAliveInterval=60',
-                                '-o ServerAliveCountMax=3',
-                                '-o StrictHostKeyChecking=no',
-                                '-o UserKnownHostsFile=/dev/null',
-                                '-o IdentityAgent=no'
-                        ]
+                        'ansible_ssh_extra_args': '-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no'
                     }
                 },
                 'vars': {
@@ -101,6 +103,31 @@ class TestAnsibleInventoryGenerator(unittest.TestCase):
                     'scan_ip2': '192.168.0.112',
                     'scan_ip3': '192.168.0.113',
                     'dg_name': 'DATA'
+                }
+            }
+        }
+
+    def get_expected_dg_inventory_dict(self) -> Dict:
+        """Returns the expected dictionary structure for a Data Guard inventory."""
+        return {
+            'gce': {
+                'hosts': {
+                    'standby-host': {
+                        'ansible_ssh_host': '192.168.0.2',
+                        'ansible_ssh_user': 'ansible',
+                        'ansible_ssh_private_key_file': '/home/ansible/.ssh/ansible',
+                        'ansible_ssh_extra_args': '-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no'
+                    }
+                }
+            },
+            'primary': {
+                'hosts': {
+                    'primary1': {
+                        'ansible_ssh_host': '192.168.0.1',
+                        'ansible_ssh_user': 'ansible',
+                        'ansible_ssh_private_key_file': '/home/ansible/.ssh/ansible',
+                        'ansible_ssh_extra_args': '-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no'
+                    }
                 }
             }
         }
@@ -144,6 +171,25 @@ class TestAnsibleInventoryGenerator(unittest.TestCase):
                              "Generated YAML content does not match expected result for RAC.")
 
     @patch('builtins.print')
+    def test_dg_inventory_generation(self, mock_print: MagicMock):
+        """Test generating inventory for an Oracle Data Guard deployment."""
+        env_vars = self.get_expected_dg_env_vars()
+        with patch.dict(os.environ, env_vars, clear=True):
+            generator = inventory_generator.AnsibleInventoryGenerator()
+            expected_filename = 'inventory_standby-host_test_DG.yml'
+            filepath = os.path.join(self.temp_dir, expected_filename)
+            
+            success = generator.generate_inventory(output_dir=self.temp_dir)
+            self.assertTrue(success, "Inventory generation should succeed for Data Guard.")
+            self.assertTrue(os.path.exists(filepath), f"Expected file {filepath} should exist.")
+
+            with open(filepath, 'r') as f:
+                generated_yaml = yaml.safe_load(f)
+            
+            self.assertEqual(generated_yaml, self.get_expected_dg_inventory_dict(),
+                             "Generated YAML content does not match expected result for Data Guard.")
+
+    @patch('builtins.print')
     def test_missing_single_instance_vars(self, mock_print: MagicMock):
         """Test single-instance validation fails when required variables are missing."""
         env_vars = {
@@ -175,7 +221,24 @@ class TestAnsibleInventoryGenerator(unittest.TestCase):
             success = generator.generate_inventory(output_dir=self.temp_dir)
             self.assertFalse(success, "Inventory generation should fail due to missing RAC variables.")
             mock_print.assert_called_with(
-                'Missing required environment variables for RAC deployment: INSTANCE_HOSTGROUP_NAME, INSTANCE_IP_ADDR, ORA_DB_NAME, CLUSTER_CONFIG_JSON, PRIMARY_IP_ADDR'
+                'Missing required environment variables for RAC deployment: INSTANCE_HOSTGROUP_NAME, ORA_DB_NAME, CLUSTER_CONFIG_JSON'
+            )
+
+    @patch('builtins.print')
+    def test_missing_dg_vars(self, mock_print: MagicMock):
+        """Test Data Guard validation fails when required variables are missing."""
+        env_vars = {
+            'CLUSTER_TYPE': 'DG',
+            'INSTANCE_SSH_USER': 'ansible',
+            'INSTANCE_SSH_KEY': '/home/ansible/.ssh/ansible',
+            'INSTANCE_SSH_EXTRA_ARGS': '-o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityAgent=no',
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            generator = inventory_generator.AnsibleInventoryGenerator()
+            success = generator.generate_inventory(output_dir=self.temp_dir)
+            self.assertFalse(success, "Inventory generation should fail due to missing Data Guard variables.")
+            mock_print.assert_called_with(
+                'Missing required environment variables for Data Guard deployment: INSTANCE_HOSTGROUP_NAME, INSTANCE_IP_ADDR, ORA_DB_NAME, INSTANCE_HOSTNAME, PRIMARY_IP_ADDR'
             )
 
     @patch('builtins.print')
