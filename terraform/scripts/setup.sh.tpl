@@ -100,7 +100,7 @@ send_heartbeat() {
     --arg instanceId "$control_node_vmid" \
     --arg zone "$control_node_zone" \
     '{heartbeat: $heartbeat, state: $state, timestamp: $timestamp, deployment_name: $deployment_name, instanceName: $instanceName, instanceId: $instanceId, zone: $zone}')
-    gcloud logging write "$cloud_log_name" "$json_payload" --payload-type=json || exit 1
+    gcloud logging write "$cloud_log_name" "$json_payload" --payload-type=json 2> >(grep -v "Created log entry." >&2) || exit 1
     sleep "$heartbeat_interval"
   done
 }
@@ -124,7 +124,7 @@ send_ansible_completion_status() {
   '{state: $state, event_type: $event_type, timestamp: $timestamp, deployment_name: $deployment_name, instanceName: $instanceName, instanceId: $instanceId, zone: $zone}')
   echo "Sending a signal to Cloud Logging to indicate Ansible completion status"
   echo "JSON payload to be sent: $json_payload"
-  gcloud logging write "$cloud_log_name" "$json_payload" --payload-type=json || exit 1
+  gcloud logging write "$cloud_log_name" "$json_payload" --payload-type=json 2> >(grep -v "Created log entry." >&2) || exit 1
 }
 
 send_startup_script_failure_status() {
@@ -138,7 +138,7 @@ send_startup_script_failure_status() {
   --arg instanceId "$control_node_vmid" \
   --arg zone "$control_node_zone" \
   '{state: $state, step_name: $step_name, error_message: $error_message, timestamp: $timestamp, deployment_name: $deployment_name, instanceName: $instanceName, instanceId: $instanceId, zone: $zone}')
-  gcloud logging write "$cloud_log_name" "$json_payload" --payload-type=json || exit 1
+  gcloud logging write "$cloud_log_name" "$json_payload" --payload-type=json 2> >(grep -v "Created log entry." >&2) || exit 1
 }
 
 # Run send_heartbeat in the background. We redirect its output to stderr (>&2)
